@@ -4,6 +4,8 @@
    설정이 비어 있거나 연결에 실패하면 null 을 돌려줘서 게임은 혼자 하는 모드로 돌아갑니다. */
 (function(){
   const cfg = window.FH_CONFIG || {};
+  /* 한 Supabase 프로젝트를 서버 여러 개가 같이 쓸 때: config.js 의 TABLE·ROOM 으로 데이터와 실시간 채널을 나눕니다 */
+  const T = cfg.TABLE || 'fh_docs', RP = cfg.ROOM || 'fh-room-';
   const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } };
   /* 게임 스크립트는 로그인한 뒤에 실행합니다. 다른 계정으로 바뀌면 이 기기에 남은 이전 캐릭터 임시 저장을 지웁니다. */
   function runGame(uid) {
@@ -21,7 +23,7 @@
 #fhAuth .go{background:#1f8f83;color:#fff;border:0;padding:12px;font:inherit;font-weight:600;cursor:pointer}#fhAuth .go:disabled{opacity:.6}#fhAuth .msg{min-height:20px;font-size:13px;color:#e0a43a;margin:0}#fhAuth .lnk{background:none;border:0;color:#9aa0a3;text-decoration:underline;cursor:pointer;font:inherit;font-size:12px;align-self:flex-start;padding:0}#fhAuth h2{font-size:18px;margin:0}`;
       const el = document.createElement('div'); el.id = 'fhAuth'; document.body.appendChild(el);
       const home = () => {
-        el.innerHTML = `<style>${css}</style><div class="bx"><h1>FALLEN HOUSE</h1><p class="sub">좀비 아포칼립스 생존 · 테스트 서버</p>
+        el.innerHTML = `<style>${css}</style><div class="bx"><h1>FALLEN HOUSE</h1><p class="sub">좀비 아포칼립스 생존 · ${cfg.LABEL || '테스트 서버'}</p>
           ${offline ? `<p class="msg">서버 설정(config.js)이 비어 있거나 서버에 연결하지 못했어요. 계정 없이 이 기기에서만 해 볼 수 있어요.</p><button class="big pri" data-go="solo"><b>이 기기에서만 해 보기</b><small>진행은 이 브라우저에만 저장돼요</small></button>`
           : `<button class="big pri" data-go="up"><b>처음 시작하기</b><small>이메일로 계정을 만들고 새 생존자로 시작해요</small></button><button class="big" data-go="in"><b>로그인</b><small>이미 계정이 있어요 · 폰·컴퓨터 어디서든 같은 생존자</small></button>`}</div>`;
         el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => b.dataset.go === 'solo' ? (el.remove(), done(null)) : form(b.dataset.go));
@@ -76,16 +78,16 @@
     function doc(path) {
       return {
         id: idOf(path),
-        async get() { const { data, error } = await sb.from('fh_docs').select('data').eq('path', path).maybeSingle(); if (error) throw err('upstream_error', error.message); return snapDoc(path, data); },
-        async set(obj) { const { error } = await sb.from('fh_docs').upsert({ path, coll: collOf(path), data: clone(obj), owner: uid, updated_at: new Date().toISOString() }); if (error) throw err(/row-level|permission/i.test(error.message) ? 'invalid_argument' : 'upstream_error', error.message); },
+        async get() { const { data, error } = await sb.from(T).select('data').eq('path', path).maybeSingle(); if (error) throw err('upstream_error', error.message); return snapDoc(path, data); },
+        async set(obj) { const { error } = await sb.from(T).upsert({ path, coll: collOf(path), data: clone(obj), owner: uid, updated_at: new Date().toISOString() }); if (error) throw err(/row-level|permission/i.test(error.message) ? 'invalid_argument' : 'upstream_error', error.message); },
         async update(obj) { const cur = await this.get(); return this.set(Object.assign(cur.exists ? cur.data() : {}, obj)); },
-        async delete() { const { error } = await sb.from('fh_docs').delete().eq('path', path); if (error) throw err('upstream_error', error.message); },
-        async acquire(o) { const { data, error } = await sb.rpc('fh_acquire_lease', { p_path: path, p_ttl_ms: (o && o.ttlMs) || 5000 }); if (error) throw err('upstream_error', error.message); return { acquired: !!data }; },
+        async delete() { const { error } = await sb.from(T).delete().eq('path', path); if (error) throw err('upstream_error', error.message); },
+        async acquire(o) { const { data, error } = await sb.rpc('fh_acquire_lease', { p_path: T === 'fh_docs' ? path : T + ':' + path, p_ttl_ms: (o && o.ttlMs) || 5000 }); if (error) throw err('upstream_error', error.message); return { acquired: !!data }; },
         onSnapshot(cb, onErr) {
           let alive = true;
           this.get().then(s => alive && cb(s)).catch(e => onErr && onErr(e));
-          const ch = sb.channel('doc:' + path + ':' + Math.random().toString(36).slice(2))
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'fh_docs', filter: 'path=eq.' + path }, p => { if (!alive) return; cb(snapDoc(path, p.eventType === 'DELETE' ? null : p.new)); })
+          const ch = sb.channel(T + ':doc:' + path + ':' + Math.random().toString(36).slice(2))
+            .on('postgres_changes', { event: '*', schema: 'public', table: T, filter: 'path=eq.' + path }, p => { if (!alive) return; cb(snapDoc(path, p.eventType === 'DELETE' ? null : p.new)); })
             .subscribe();
           return () => { alive = false; sb.removeChannel(ch); };
         }
@@ -103,14 +105,14 @@
           let alive = true; const map = new Map();
           const emit = () => alive && cb(build([...map.entries()].map(([path, data]) => ({ path, data }))));
           fetchAll().then(rows => { rows.forEach(r => map.set(r.path, r.data)); emit(); }).catch(e => onErr && onErr(e));
-          const ch = sb.channel('coll:' + coll + ':' + Math.random().toString(36).slice(2))
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'fh_docs', filter: 'coll=eq.' + coll }, p => {
+          const ch = sb.channel(T + ':coll:' + coll + ':' + Math.random().toString(36).slice(2))
+            .on('postgres_changes', { event: '*', schema: 'public', table: T, filter: 'coll=eq.' + coll }, p => {
               if (p.eventType === 'DELETE') map.delete(p.old.path); else map.set(p.new.path, p.new.data); emit(); })
             .subscribe();
           return () => { alive = false; sb.removeChannel(ch); };
         }
       };
-      async function fetchAll() { const { data, error } = await sb.from('fh_docs').select('path,data').eq('coll', coll).order('updated_at', { ascending: false }).limit(500); if (error) throw err('upstream_error', error.message); return data || []; }
+      async function fetchAll() { const { data, error } = await sb.from(T).select('path,data').eq('coll', coll).order('updated_at', { ascending: false }).limit(500); if (error) throw err('upstream_error', error.message); return data || []; }
       function build(rows) {
         let docs = rows.map(r => snapDoc(r.path, r));
         if (q.order) { const [f, dir] = q.order, s = dir === 'desc' ? -1 : 1; docs.sort((a, b) => { const x = (a.data() || {})[f] ?? 0, y = (b.data() || {})[f] ?? 0; return x > y ? s : x < y ? -s : 0; }); }
@@ -132,7 +134,7 @@
   function makeRoom(sb, uid) {
     const myPeer = 'p' + Math.random().toString(36).slice(2, 12);
     function open(name) {
-      const ch = sb.channel('fh-room-' + name, { config: { broadcast: { self: true }, presence: { key: myPeer } } });
+      const ch = sb.channel(RP + name, { config: { broadcast: { self: true }, presence: { key: myPeer } } });
       const subs = {}, peerCbs = [], connCbs = []; let me = {}, peers = [], prev = new Map(), connected = false, left = false;
       ch.on('broadcast', { event: '*' }, ({ event, payload }) => {
         const p = payload || {}; const msg = { topic: event, data: p.d, by: p.by || null, peer: p.peer || '', isMe: p.by === uid, sameTab: p.peer === myPeer, kind: 'viewer', guest: false };
