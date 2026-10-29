@@ -9862,6 +9862,11 @@ const _viewMap59b=viewMap; viewMap=function(){ const h=_viewMap59b.apply(this,ar
   const d=document.createElement('div'); d.append(tp.content); return d.innerHTML };
 (()=>{ const st=document.createElement('style'); st.textContent=`.mapinfo .midesc{font-size:14px;line-height:1.6;margin:4px 0 8px;color:var(--fg)}`; document.head.append(st) })();
 
+/* 지도 '무엇이 필요해요?' 버튼: 가로로 잘리지 않게 여러 줄로 감싼다 */
+(()=>{ const st=document.createElement('style'); st.textContent=`.needwide .needbox .row.qn,.needbox .row.qn{flex-wrap:wrap!important;overflow:visible!important;mask-image:none!important;-webkit-mask-image:none!important;padding-bottom:0}
+.needbox .row.qn .chipb{flex:0 0 auto;white-space:nowrap}
+.mapcol>.maptool{flex-wrap:wrap!important;overflow:visible!important;row-gap:6px;mask-image:none!important;-webkit-mask-image:none!important}.mapcol>.maptool>*{flex:0 0 auto;white-space:nowrap}`; document.head.append(st) })();
+
 /* ================= 시작 ================= */
 {const l=loadLocal(); rt.hadLocal=!!l; rt.localT=l&&l.t||0; S=fixSave(l)}
 {const r=offline(Date.now()-(S.t||Date.now())); S.t=Date.now(); render(); renderChat(true); if(r) setTimeout(()=>offlineToast(r),300)}
